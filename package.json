@@ -1,0 +1,18 @@
+{
+  "name": "@modera-plugin/scheduler",
+  "version": "0.1.0",
+  "type": "module",
+  "files": [
+    "plugin.json",
+    "dist",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "modera-plugin-build ."
+  },
+  "devDependencies": {
+    "@modera/plugin-build": "0.1.0",
+    "@modera/plugin-sdk": "0.1.0"
+  },
+  "license": "MIT"
+}

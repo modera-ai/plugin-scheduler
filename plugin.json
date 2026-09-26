@@ -1,0 +1,76 @@
+{
+  "apiVersion": 1,
+  "id": "modera.scheduler",
+  "name": "Scheduled tasks",
+  "version": "0.1.0",
+  "description": "Persist one-shot and recurring prompts, run them in the original conversation and track execution outcomes.",
+  "author": "Modera",
+  "category": "productivity",
+  "icon": "clock",
+  "main": "dist/index.cjs",
+  "permissions": [
+    "runs.schedule",
+    "runs.observe",
+    "storage.read",
+    "storage.write"
+  ],
+  "tools": [
+    {
+      "id": "schedule_manage",
+      "title": "Manage scheduled tasks",
+      "description": "Create, list, pause, resume or remove a task in this project. at must be ISO 8601 with a timezone. intervalSeconds repeats from the scheduled instant (minimum 60). Uses this conversation's current model. Runs while Modera is open; missed occurrences coalesce into one. Interrupted/uncertain dispatches pause for review.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "create",
+              "list",
+              "pause",
+              "resume",
+              "remove"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          },
+          "at": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "intervalSeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 31536000
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "requiredPermissions": [
+        "runs.schedule",
+        "storage.read",
+        "storage.write"
+      ]
+    }
+  ],
+  "locales": {
+    "zh-CN": {
+      "name": "定时任务",
+      "description": "持久化单次和周期任务，在原对话中执行并记录结果。"
+    }
+  }
+}
