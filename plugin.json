@@ -19,13 +19,13 @@
     {
       "id": "schedule_manage",
       "title": "Manage scheduled tasks",
-      "description": "Create, list, pause, resume or remove a task in this project. at must be ISO 8601 with a timezone. intervalSeconds repeats from the scheduled instant (minimum 60). Uses this conversation's current model. Runs while Modera is open; missed occurrences coalesce into one. Interrupted/uncertain dispatches pause for review.",
+      "description": "Create, list, pause, resume, remove or recover a task in this project. at must be ISO 8601 with a timezone. intervalSeconds repeats from the scheduled instant (minimum 60). Uses this conversation's current model. Runs while Modera is open; missed occurrences coalesce into one. Interrupted/uncertain dispatches pause for review. Use recover only after the user has reviewed the previous execution outcome; it acknowledges uncertainty and allows future execution. A busy conversation cannot be recovered.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "action": {
-            "enum": ["create", "list", "pause", "resume", "remove"]
+            "enum": ["create", "list", "pause", "resume", "remove", "recover"]
           },
           "id": {
             "type": "string",

@@ -1,7 +1,14 @@
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { declaredTools, type PluginModule } from "@modera/plugin-sdk";
-import { ScheduleStore, dispatchDue, updateJob } from "./store";
+import {
+  ScheduleStore,
+  dispatchDue,
+  updateJob,
+  recordCompletion,
+  reconcileRuns,
+  recoverJob,
+} from "./store";
 import { schedulerUi } from "./ui";
 import manifest from "../plugin.json";
 
@@ -14,16 +21,19 @@ export const activate: PluginModule["activate"] = async (host) => {
   const timer = setInterval(() => {
     if (busy || host.signal.aborted) return;
     busy = true;
-    void dispatchDue(
-      store,
-      (job) =>
-        host.scheduling!.start(
-          job.target,
-          job.prompt,
-          host.scopeSignal?.(job.target.projectId) ?? host.signal,
+    void reconcileRuns(store, host.scheduling!.inspect, host.signal)
+      .then(() =>
+        dispatchDue(
+          store,
+          (job) =>
+            host.scheduling!.start(
+              job.target,
+              job.prompt,
+              host.scopeSignal?.(job.target.projectId) ?? host.signal,
+            ),
+          host.signal,
         ),
-      host.signal,
-    )
+      )
       .catch((error) => {
         if (!host.signal.aborted) console.error("Schedule dispatch:", error);
       })
@@ -37,34 +47,11 @@ export const activate: PluginModule["activate"] = async (host) => {
     once: true,
   });
   return {
-    ui: schedulerUi(store),
+    ui: schedulerUi(store, (id, projectId) =>
+      recoverJob(store, id, projectId, host.scheduling!.inspect),
+    ),
     runCompleted: async (event) => {
-      await store.update((jobs) => {
-        const job = jobs.find(
-          (item) =>
-            item.runId === event.runId &&
-            item.target.projectId === event.projectId &&
-            item.target.sessionId === event.sessionId,
-        );
-        if (!job) return;
-        const now = Date.now();
-        job.history = [
-          ...job.history,
-          {
-            at: now,
-            outcome: String(event.outcome ?? "completed"),
-            runId: event.runId,
-          },
-        ].slice(-30);
-        delete job.runId;
-        if (job.status === "paused") return;
-        if (job.intervalMs) {
-          job.nextAt +=
-            (Math.floor(Math.max(0, now - job.nextAt) / job.intervalMs) + 1) *
-            job.intervalMs;
-          job.status = "active";
-        } else job.status = "completed";
-      });
+      await recordCompletion(store, event);
       host.invalidateUi?.();
     },
     sessionDeleted: async (event) => {
@@ -89,6 +76,13 @@ export const activate: PluginModule["activate"] = async (host) => {
           intervalSeconds?: number;
         };
         context.signal.throwIfAborted();
+        if (input.action === "recover")
+          return recoverJob(
+            store,
+            input.id,
+            context.projectId,
+            host.scheduling!.inspect,
+          );
         if (input.action === "list")
           return {
             jobs: (await store.list()).filter(

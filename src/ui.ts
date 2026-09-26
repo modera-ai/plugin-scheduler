@@ -1,7 +1,13 @@
 import type { PluginUiContribution, PluginUiNode } from "@modera/plugin-sdk";
 import { type ScheduleStore, updateJob } from "./store";
 
-export function schedulerUi(store: ScheduleStore): PluginUiContribution[] {
+export function schedulerUi(
+  store: ScheduleStore,
+  recover: (
+    id: string | undefined,
+    projectId: string | undefined,
+  ) => Promise<unknown>,
+): PluginUiContribution[] {
   return [
     {
       id: "modera.scheduler.panel",
@@ -12,8 +18,12 @@ export function schedulerUi(store: ScheduleStore): PluginUiContribution[] {
         icon: "box",
       },
       requiredPermissions: ["storage.read", "storage.write", "runs.schedule"],
-      actions: ["refresh", "pause", "resume", "remove"],
+      actions: ["refresh", "pause", "resume", "remove", "recover"],
       async act(action, context) {
+        if (action.id === "recover") {
+          await recover(action.value, context.projectId);
+          return;
+        }
         if (action.id !== "refresh")
           await updateJob(store, action.id, action.value, context.projectId);
       },
@@ -77,6 +87,15 @@ export function schedulerUi(store: ScheduleStore): PluginUiContribution[] {
                 action: "pause",
                 value: job.id,
                 label: zh ? "暂停后续执行" : "Pause future runs",
+              });
+            else if (job.uncertain)
+              actions.push({
+                type: "button",
+                action: "recover",
+                value: job.id,
+                label: zh
+                  ? "已核对执行结果，恢复计划"
+                  : "Reviewed outcome — recover schedule",
               });
             else if (!job.runId)
               actions.push({

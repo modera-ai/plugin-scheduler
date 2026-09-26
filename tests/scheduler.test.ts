@@ -2,7 +2,15 @@ import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ScheduleStore, dispatchDue, type ScheduledJob } from "../src/store";
+import {
+  ScheduleStore,
+  dispatchDue,
+  type ScheduledJob,
+  recordCompletion,
+  reconcileRuns,
+  recoverJob,
+  updateJob,
+} from "../src/store";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -74,5 +82,125 @@ test("failed dispatch is persisted and does not retry every tick", async () => {
   expect((await store.list())[0]).toMatchObject({
     status: "error",
     error: "Error: Disabled",
+  });
+});
+test("completion arriving before start returns is retained and replay is idempotent", async () => {
+  const { store } = await setup();
+  const signal = new AbortController().signal;
+  await dispatchDue(
+    store,
+    async () => {
+      await recordCompletion(
+        store,
+        {
+          projectId: "p",
+          sessionId: "s",
+          runId: "fast-run",
+          outcome: "completed",
+        },
+        1001,
+      );
+      return { runId: "fast-run" };
+    },
+    signal,
+    1000,
+  );
+  const job = (await store.list())[0]!;
+  expect(job).toMatchObject({ status: "active", nextAt: 61000 });
+  expect(job.runId).toBeUndefined();
+  expect(job.history.map((item) => item.outcome)).toEqual([
+    "started",
+    "completed",
+  ]);
+  await recordCompletion(
+    store,
+    { projectId: "p", sessionId: "s", runId: "fast-run", outcome: "completed" },
+    1002,
+  );
+  expect((await store.list())[0]!.history).toEqual(job.history);
+});
+test("restart reconciles a verified terminal outcome without replaying the run", async () => {
+  const { store, path } = await setup();
+  const signal = new AbortController().signal;
+  await dispatchDue(
+    store,
+    async () => ({ runId: "completed-run" }),
+    signal,
+    1000,
+  );
+  const restarted = new ScheduleStore(path);
+  await restarted.initialize();
+  await reconcileRuns(
+    restarted,
+    async () => ({ busy: false, outcome: "completed" }),
+    signal,
+  );
+  const job = (await restarted.list())[0]!;
+  expect(job.status).toBe("active");
+  expect(job.nextAt).toBeGreaterThan(Date.now() - 10);
+  expect(job.runId).toBeUndefined();
+});
+test("recovery rejects live runs and cross-project access, then acknowledges unknown outcome", async () => {
+  const { store, path } = await setup();
+  const signal = new AbortController().signal;
+  await dispatchDue(
+    store,
+    async () => ({ runId: "unknown-run" }),
+    signal,
+    1000,
+  );
+  const restarted = new ScheduleStore(path);
+  await restarted.initialize();
+  await expect(updateJob(restarted, "resume", "one", "p")).rejects.toThrow();
+  await expect(
+    recoverJob(restarted, "one", "other", async () => ({
+      busy: false,
+      outcome: "unknown",
+    })),
+  ).rejects.toThrow();
+  await expect(
+    recoverJob(restarted, "one", "p", async () => ({
+      busy: true,
+      outcome: "running",
+    })),
+  ).rejects.toThrow("live run");
+  await recoverJob(restarted, "one", "p", async () => ({
+    busy: false,
+    outcome: "unknown",
+  }));
+  expect((await restarted.list())[0]).toMatchObject({ status: "active" });
+  expect((await restarted.list())[0]!.runId).toBeUndefined();
+});
+test("completion preserves a manual pause and records a failed one-shot accurately", async () => {
+  const { store } = await setup();
+  const signal = new AbortController().signal;
+  await dispatchDue(store, async () => ({ runId: "paused-run" }), signal, 1000);
+  await updateJob(store, "pause", "one", "p");
+  await recordCompletion(
+    store,
+    {
+      projectId: "p",
+      sessionId: "s",
+      runId: "paused-run",
+      outcome: "completed",
+    },
+    1001,
+  );
+  expect((await store.list())[0]!.status).toBe("paused");
+  await store.update((jobs) => {
+    jobs[0]!.status = "active";
+    jobs[0]!.nextAt = 1000;
+    delete jobs[0]!.intervalMs;
+  });
+  await dispatchDue(store, async () => ({ runId: "failed-run" }), signal, 1000);
+  await recordCompletion(store, {
+    projectId: "p",
+    sessionId: "s",
+    runId: "failed-run",
+    outcome: "failed",
+  });
+  expect((await store.list())[0]).toMatchObject({
+    status: "error",
+    error: "Run failed",
   });
 });
