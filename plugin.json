@@ -1,5 +1,6 @@
 {
   "apiVersion": 1,
+  "extensions": ["panel"],
   "id": "modera.scheduler",
   "name": "Scheduled tasks",
   "version": "0.1.0",
@@ -24,13 +25,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "enum": [
-              "create",
-              "list",
-              "pause",
-              "resume",
-              "remove"
-            ]
+            "enum": ["create", "list", "pause", "resume", "remove"]
           },
           "id": {
             "type": "string",
@@ -56,15 +51,9 @@
             "maximum": 31536000
           }
         },
-        "required": [
-          "action"
-        ]
+        "required": ["action"]
       },
-      "requiredPermissions": [
-        "runs.schedule",
-        "storage.read",
-        "storage.write"
-      ]
+      "requiredPermissions": ["runs.schedule", "storage.read", "storage.write"]
     }
   ],
   "locales": {
