@@ -1,5 +1,6 @@
 {
   "apiVersion": 1,
+  "activationScope": "global",
   "extensions": ["workbench"],
   "frontends": { "workbench": { "root": "dist/ui", "entry": "index.html" } },
   "id": "modera.scheduler",
