@@ -60,6 +60,12 @@ test("claims a due task durably and never overlaps dispatches", async () => {
   await dispatchDue(store, start, signal, 999999);
   expect(start).toHaveBeenCalledTimes(1);
 });
+test("records start, finish, duration and execution conversation", async () => {
+  const { store } = await setup();
+  await dispatchDue(store, async () => ({ runId: "timed-run" }), new AbortController().signal, 1000);
+  await recordCompletion(store, { projectId: "p", sessionId: "s", runId: "timed-run", outcome: "completed" }, 4500);
+  expect((await store.list())[0]!.history.at(-1)).toMatchObject({ startedAt: 1000, finishedAt: 4500, durationMs: 3500, sessionId: "s" });
+});
 test("restart pauses uncertain executions rather than replaying them", async () => {
   const { store, path } = await setup();
   await store.update((jobs) => {

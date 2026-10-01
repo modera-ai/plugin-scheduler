@@ -1,6 +1,7 @@
 {
   "apiVersion": 1,
-  "extensions": ["panel"],
+  "extensions": ["workbench"],
+  "frontends": { "workbench": { "root": "dist/ui", "entry": "index.html" } },
   "id": "modera.scheduler",
   "name": "Scheduled tasks",
   "version": "0.1.0",
@@ -49,6 +50,21 @@
             "type": "integer",
             "minimum": 60,
             "maximum": 31536000
+          },
+          "recurrence": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "enum": ["daily", "weekdays", "weekly", "custom"] },
+              "time": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+              "timezone": { "type": "string", "maxLength": 80 },
+              "anchor": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+              "days": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 6 }, "maxItems": 7 },
+              "interval": { "type": "integer", "minimum": 1, "maximum": 365 },
+              "unit": { "enum": ["day", "week", "month"] },
+              "rrule": { "type": "string", "maxLength": 500 }
+            },
+            "required": ["kind", "time", "timezone", "anchor"]
           }
         },
         "required": ["action"]

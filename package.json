@@ -14,5 +14,12 @@
     "@modera/plugin-build": "0.1.0",
     "@modera/plugin-sdk": "0.1.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@modera/ui": "file:../../../modera-ui",
+    "lucide-react": "^1.17.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "rrule": "^2.8.1"
+  }
 }

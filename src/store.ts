@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { nextOccurrence, type Recurrence } from "./recurrence";
 import type {
   ScheduledRunTarget,
   PluginSchedulingApi,
@@ -14,13 +15,17 @@ export interface ScheduledJob {
   target: ScheduledRunTarget;
   nextAt: number;
   intervalMs?: number;
+  recurrence?: Recurrence;
+  /** Task-created conversations never reuse an unrelated user conversation. */
+  ownedConversation?: boolean;
+  newConversationEachRun?: boolean;
   status:
     "active" | "paused" | "dispatching" | "running" | "completed" | "error";
   runId?: string;
   error?: string;
   uncertain?: boolean;
   earlyCompletions?: { runId: string; outcome: string; at: number }[];
-  history: { at: number; outcome: string; runId?: string }[];
+  history: { at: number; outcome: string; runId?: string; startedAt?: number; finishedAt?: number; durationMs?: number; sessionId?: string }[];
 }
 export class ScheduleStore {
   private jobs: ScheduledJob[] = [];
@@ -97,7 +102,7 @@ export async function dispatchDue(
         item.status = "running";
         item.history = [
           ...item.history,
-          { at: now, outcome: "started", runId: result.runId },
+          { at: now, startedAt: now, sessionId: item.target.sessionId, outcome: "started", runId: result.runId },
         ].slice(-30);
         const early = item.earlyCompletions?.find(
           (event) => event.runId === result.runId,
@@ -126,19 +131,22 @@ export async function dispatchDue(
 
 function finishJob(job: ScheduledJob, outcome: string, now: number) {
   const keepPaused = job.status === "paused" && !job.uncertain;
-  job.history = [...job.history, { at: now, outcome, runId: job.runId }].slice(
+  const start = [...job.history].reverse().find(record => record.runId === job.runId && record.outcome === "started");
+  job.history = [...job.history, { at: now, finishedAt: now, ...(start ? { startedAt: start.startedAt ?? start.at, durationMs: Math.max(0, now - (start.startedAt ?? start.at)) } : {}), sessionId: job.target.sessionId, outcome, runId: job.runId }].slice(
     -30,
   );
   delete job.runId;
   delete job.uncertain;
   delete job.earlyCompletions;
   delete job.error;
-  if (job.intervalMs)
+  const calendarNext = job.recurrence ? nextOccurrence(job.recurrence, now) : undefined;
+  if (calendarNext !== undefined) job.nextAt = calendarNext;
+  else if (job.intervalMs)
     job.nextAt +=
       (Math.floor(Math.max(0, now - job.nextAt) / job.intervalMs) + 1) *
       job.intervalMs;
   if (keepPaused) return;
-  job.status = job.intervalMs
+  job.status = job.intervalMs || calendarNext !== undefined
     ? "active"
     : outcome === "completed"
       ? "completed"
@@ -286,14 +294,14 @@ export function updateJob(
       job.status = "paused";
       return { job };
     }
-    if (action === "resume") {
+    if (action === "resume" || action === "runNow") {
       if (job.runId || job.uncertain)
         throw new Error(
           "Review the previous run before resuming; create a new task if its outcome is unknown",
         );
       job.status = "active";
       delete job.error;
-      job.nextAt = Math.max(job.nextAt, Date.now());
+      job.nextAt = action === "runNow" ? Date.now() : Math.max(job.nextAt, Date.now());
       return { job };
     }
     throw new Error("Unknown schedule action");

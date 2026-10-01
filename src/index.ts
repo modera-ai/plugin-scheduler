@@ -11,6 +11,8 @@ import {
 } from "./store";
 import { schedulerUi } from "./ui";
 import manifest from "../plugin.json";
+import { createSchedule } from "./editor";
+import type { Recurrence } from "./recurrence";
 
 export const activate: PluginModule["activate"] = async (host) => {
   if (!host.scheduling)
@@ -18,6 +20,7 @@ export const activate: PluginModule["activate"] = async (host) => {
   const store = new ScheduleStore(join(host.storagePath, "schedules.json"));
   await store.initialize();
   let busy = false;
+  let lastSnapshot = JSON.stringify(await store.list());
   const timer = setInterval(() => {
     if (busy || host.signal.aborted) return;
     busy = true;
@@ -25,21 +28,35 @@ export const activate: PluginModule["activate"] = async (host) => {
       .then(() =>
         dispatchDue(
           store,
-          (job) =>
-            host.scheduling!.start(
+          async (job) => {
+            if (job.ownedConversation || !job.target.sessionId) {
+              if (!host.scheduling!.prepare) throw new Error("Independent schedule execution unavailable");
+              const target = await host.scheduling!.prepare(job.target, job.title, job.newConversationEachRun === true, { taskId: job.id, workbenchId: "modera.scheduler.workbench" });
+              // Commit the exact target before starting, so early completion and recovery can find it.
+              await store.update(jobs => { const current = jobs.find(item => item.id === job.id); if (!current || current.status !== "dispatching") throw new Error("Schedule changed before dispatch"); current.target = target; });
+              job.target = target;
+            }
+            return host.scheduling!.start(
               job.target,
               job.prompt,
-              host.scopeSignal?.(job.target.projectId) ?? host.signal,
-            ),
+              host.scopeSignal?.(job.target.authorizationProjectId ?? job.target.projectId) ?? host.signal,
+            );
+          },
           host.signal,
         ),
       )
       .catch((error) => {
         if (!host.signal.aborted) console.error("Schedule dispatch:", error);
       })
-      .finally(() => {
-        busy = false;
-        host.invalidateUi?.();
+      .finally(async () => {
+        try {
+          const next = JSON.stringify(await store.list());
+          if (next !== lastSnapshot) { lastSnapshot = next; host.invalidateUi?.(); }
+        } catch (error) {
+          if (!host.signal.aborted) console.error("Schedule refresh:", error);
+        } finally {
+          busy = false;
+        }
       });
   }, 1000);
   timer.unref();
@@ -47,9 +64,7 @@ export const activate: PluginModule["activate"] = async (host) => {
     once: true,
   });
   return {
-    ui: schedulerUi(store, (id, projectId) =>
-      recoverJob(store, id, projectId, host.scheduling!.inspect),
-    ),
+    ui: schedulerUi(store, (id, projectId) => recoverJob(store, id, projectId, host.scheduling!.inspect), host.scheduling),
     runCompleted: async (event) => {
       await recordCompletion(store, event);
       host.invalidateUi?.();
@@ -74,6 +89,7 @@ export const activate: PluginModule["activate"] = async (host) => {
           prompt?: string;
           at?: string;
           intervalSeconds?: number;
+          recurrence?: Recurrence;
         };
         context.signal.throwIfAborted();
         if (input.action === "recover")
@@ -90,6 +106,12 @@ export const activate: PluginModule["activate"] = async (host) => {
             ),
           };
         if (input.action === "create") {
+          if (input.recurrence) {
+            const captured = await host.scheduling!.capture(context);
+            if (!host.scheduling!.target) throw new Error("Independent schedule execution unavailable");
+            const target = await host.scheduling!.target(captured.projectId, "", captured.selection);
+            return createSchedule(store, { title: input.title ?? "", prompt: input.prompt ?? "", recurrence: input.recurrence, ...(input.intervalSeconds !== undefined ? { intervalSeconds: input.intervalSeconds } : {}) }, target);
+          }
           if (
             !input.title?.trim() ||
             input.title.length > 200 ||
@@ -112,12 +134,15 @@ export const activate: PluginModule["activate"] = async (host) => {
               input.intervalSeconds > 31536000)
           )
             throw new Error("Recurrence must be 60–31536000 seconds");
-          const target = await host.scheduling!.capture(context);
+          const captured = await host.scheduling!.capture(context);
+          if (!host.scheduling!.target) throw new Error("Independent schedule execution unavailable");
+          const target = await host.scheduling!.target(captured.projectId, "", captured.selection);
           const job = {
             id: randomUUID(),
             title: input.title,
             prompt: input.prompt,
             target,
+            ownedConversation: true,
             nextAt,
             intervalMs: input.intervalSeconds
               ? input.intervalSeconds * 1000
