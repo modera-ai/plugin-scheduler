@@ -78,5 +78,6 @@
       "name": "定时任务",
       "description": "持久化单次和周期任务，在原对话中执行并记录结果。"
     }
-  }
+  },
+  "contributions": ["runCompleted", "sessionDeleted"]
 }
