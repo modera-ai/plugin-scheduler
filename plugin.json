@@ -5,7 +5,7 @@
   "frontends": { "workbench": { "root": "dist/ui", "entry": "index.html" } },
   "id": "modera.scheduler",
   "name": "Scheduled tasks",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Persist one-shot and recurring prompts, run them in the original conversation and track execution outcomes.",
   "author": "Modera",
   "category": "productivity",
